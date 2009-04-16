@@ -16,6 +16,12 @@ package org.sonatype.maven.plugin.version;
  * limitations under the License.
  */
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Iterator;
+import java.util.List;
+
 import org.apache.maven.plugin.Mojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
@@ -30,18 +36,10 @@ import org.jdom.input.SAXBuilder;
 import org.jdom.output.XMLOutputter;
 import org.jdom.xpath.XPath;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-
 /**
- * Set the version of a POM and all of the places in the build where it's used
- * as a parent.
- * This is useful for setting a sonatype-specific version for an internal release.
- *
+ * Set the version of a POM and all of the places in the build where it's used as a parent. This is useful for setting a
+ * sonatype-specific version for an internal release.
+ * 
  * @goal set-version
  * @requiresDirectInvocation
  * @aggregator
@@ -79,38 +77,56 @@ public class SetVersionMojo
     public void execute()
         throws MojoExecutionException
     {
-        MavenProject project = null;
-        List children = new ArrayList();
+        MavenProject project = getRootProject();
 
-        for ( Iterator it = projects.iterator(); it.hasNext(); )
-        {
-            MavenProject p = (MavenProject) it.next();
-            if ( p.getArtifactId().equals( artifactId ) )
-            {
-                project = p;
-            }
-            else if ( p.getParent() != null && p.getParent().getArtifactId().equals( artifactId ) )
-            {
-                children.add( p );
-            }
-        }
-
-        if ( project != null )
-        {
-            updateMainVersion( project );
-        }
-
-        for ( Iterator it = children.iterator(); it.hasNext(); )
-        {
-            MavenProject child = (MavenProject) it.next();
-            updateParentVersion( child );
-        }
+        updateVersion( project );
 
         for ( Iterator it = projects.iterator(); it.hasNext(); )
         {
             MavenProject p = (MavenProject) it.next();
             updateExtras( p );
         }
+    }
+
+    private void updateVersion( MavenProject project )
+        throws MojoExecutionException
+    {
+        if ( project.getParent() != null )
+        {
+            updateMainVersion( project );
+        }
+        else
+        {
+            updateParentVersion( project );
+        }
+
+        if ( "pom".equals( project.getPackaging() ) )
+        {
+            for ( Iterator it = projects.iterator(); it.hasNext(); )
+            {
+                MavenProject child = (MavenProject) it.next();
+
+                if ( project.equals( child.getParent() ) )
+                {
+                    updateVersion( child );
+                }
+            }
+        }
+    }
+
+    private MavenProject getRootProject()
+        throws MojoExecutionException
+    {
+        for ( Iterator it = projects.iterator(); it.hasNext(); )
+        {
+            MavenProject p = (MavenProject) it.next();
+            if ( p.getArtifactId().equals( artifactId ) )
+            {
+                return p;
+            }
+        }
+
+        throw new MojoExecutionException( "Could not find project with artifactId=" + artifactId );
     }
 
     private void updateExtras( MavenProject p )
@@ -125,7 +141,7 @@ public class SetVersionMojo
                 String path = paths[i];
 
                 getLog().info( "Updating version in xpath: " + path + " of POM: " + p.getFile() + " to: " + newVersion );
-                updateVersion( path, p, false );
+                doUpdateVersion( path, p, false );
             }
         }
     }
@@ -134,19 +150,17 @@ public class SetVersionMojo
         throws MojoExecutionException
     {
         getLog().info( "Updating parent version for: " + child.getId() + " to: " + newVersion );
-        updateVersion( "/p:project/p:parent/p:version", child, true );
+        doUpdateVersion( "/p:project/p:parent/p:version", child, true );
     }
 
     private void updateMainVersion( MavenProject project )
         throws MojoExecutionException
     {
         getLog().info( "Updating project version for: " + project.getId() + " to: " + newVersion );
-        updateVersion( "/p:project/p:version", project, true );
+        doUpdateVersion( "/p:project/p:version", project, true );
     }
 
-    private void updateVersion( String xpath,
-                                MavenProject project,
-                                boolean required )
+    private void doUpdateVersion( String xpath, MavenProject project, boolean required )
         throws MojoExecutionException
     {
         File pomFile = project.getFile();
@@ -169,15 +183,17 @@ public class SetVersionMojo
         try
         {
             XPath xp = XPath.newInstance( xpath );
-            
+
             if ( doc.getRootElement().getNamespace() == null )
             {
-                doc.getRootElement().setNamespace( Namespace.getNamespace( "http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd" ) );
+                doc.getRootElement().setNamespace(
+                    Namespace
+                        .getNamespace( "http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd" ) );
             }
-            
+
             xp.addNamespace( "p", doc.getRootElement().getNamespace().getURI() );
             xp.addNamespace( "", doc.getRootElement().getNamespace().getURI() );
-            
+
             elements = xp.selectNodes( doc );
         }
         catch ( JDOMException e )
@@ -203,7 +219,7 @@ public class SetVersionMojo
 
             getLog().info( "Root element is: " + doc.getRootElement() );
 
-            for( int i = 2; i < parts.length && e != null; i++ )
+            for ( int i = 2; i < parts.length && e != null; i++ )
             {
                 List children = e.getChildren();
                 if ( children != null )
