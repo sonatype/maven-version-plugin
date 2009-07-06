@@ -91,13 +91,13 @@ public class SetVersionMojo
     private void updateVersion( MavenProject project )
         throws MojoExecutionException
     {
-        if ( project.getParent() == null )
+        if ( project.getParent() != null && project.getVersion().equals( project.getParent().getVersion() ) )
         {
-            updateMainVersion( project );
+            updateParentVersion( project );
         }
         else
         {
-            updateParentVersion( project );
+            updateMainVersion( project );
         }
 
         if ( "pom".equals( project.getPackaging() ) )
